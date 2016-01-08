@@ -1,13 +1,59 @@
+import copy
 import json
 import random
 from abc import abstractmethod
 import click
 
 
+class Board(object):
+
+    def __init__(self, initial_state=None):
+        if initial_state is None:
+            self.state = [' '] * 9
+        else:
+            self.state = initial_state
+
+    @property
+    def available_moves(self):
+        return [i + 1 for i in range(0, len(self)) if self[i] == ' ']
+
+    @property
+    def full(self):
+        return not self.available_moves
+
+    def check_winner(self):
+        for char in ('X', 'O'):
+            # All possible winning combinations
+            for a, b, c in [(0, 1, 2), (3, 4, 5), (6, 7, 8),
+                            (0, 3, 6), (1, 4, 7), (2, 5, 8),
+                            (0, 4, 8), (2, 4, 6)]:
+                if char == self[a] == self[b] == self[c]:
+                    return char
+        return None
+
+    def __getitem__(self, item):
+        return self.state[item]
+
+    def __setitem__(self, key, value):
+        self.state[key] = value
+
+    def __iter__(self):
+        for state in self.state:
+            yield state
+
+    def __len__(self):
+        return len(self.state)
+
+    def __str__(self):
+        row = " {} | {} | {}"
+        hr = "\n-----------\n"
+        return hr.join([row] * 3).format(*self.state)
+
+
 class TicTacToe(object):
 
     def __init__(self, player_x, player_o):
-        self.board = [' '] * 9
+        self.board = Board()
         self.player_x = player_x
         self.player_o = player_o
         self.player_x.game = self
@@ -25,34 +71,21 @@ class TicTacToe(object):
             if isinstance(player, HumanPlayer):
                 self.display_board()
             space = player.move(self.board) - 1  # Subtract to get 0 based index
+            previous_board = copy.deepcopy(self.board)
             self.board[space] = char
-            if self.winner(char):
-                player.reward(1, self.board)
-                other_player.reward(-1, self.board)
+            if self.board.check_winner() == char:
+                player.reward(1, previous_board)
+                other_player.reward(-1, previous_board)
                 break
-            if self.board_full():
-                player.reward(.5, self.board)
-                other_player.reward(.5, self.board)
+            if self.board.full:
+                player.reward(0, previous_board)
+                other_player.reward(0, previous_board)
                 break
-            other_player.reward(0, self.board)
+            other_player.reward(0, previous_board)
             self.player_x_turn = not self.player_x_turn
 
-    def winner(self, char):
-        # All possible winning combinations
-        for a, b, c in [(0, 1, 2), (3, 4, 5), (6, 7, 8),
-                        (0, 3, 6), (1, 4, 7), (2, 5, 8),
-                        (0, 4, 8), (2, 4, 6)]:
-            if char == self.board[a] == self.board[b] == self.board[c]:
-                return True
-        return False
-
-    def board_full(self):
-        return not any([space == ' ' for space in self.board])
-
     def display_board(self):
-        row = " {} | {} | {}"
-        hr = "\n-----------\n"
-        print hr.join([row] * 3).format(*self.board)
+        print(self.board)
 
 
 class Player(object):
@@ -68,10 +101,6 @@ class Player(object):
     def reward(self, value, board):
         pass
 
-    @staticmethod
-    def available_moves(board):
-        return [i + 1 for i in range(0, len(board)) if board[i] == ' ']
-
 
 class HumanPlayer(Player):
 
@@ -79,7 +108,7 @@ class HumanPlayer(Player):
         pass
 
     def move(self, board):
-        actions = self.available_moves(board)
+        actions = board.available_moves
         while True:
             try:
                 print("Available Moves: {}".format(",".join(map(str, actions))))
@@ -93,7 +122,7 @@ class HumanPlayer(Player):
         return new_move
 
     def reward(self, value, board):
-        print "{} rewarded: {}".format(self.__class__.__name__, value)
+        print("{} rewarded: {}".format(self.__class__.__name__, value))
 
 
 class QLearningPlayer(Player):
@@ -120,7 +149,7 @@ class QLearningPlayer(Player):
 
     def move(self, board):
         self.state = "".join(board)
-        actions = self.available_moves(board)
+        actions = board.available_moves
 
         # Explore the space
         if random.random() < self.epsilon:
@@ -142,11 +171,12 @@ class QLearningPlayer(Player):
 
     def reward(self, value, board):
         if self.action:
-            self.learn(self.state, self.action, value, "".join(board))
+            self.learn(self.state, self.action, value, board)
 
-    def learn(self, state, action, reward, result_state):
+    def learn(self, state, action, reward, board):
+        result_state = "".join(board)
         prev = self.get_q(state, action)
-        new_max_q = max([self.get_q(result_state, a) for a in self.available_moves(state)])
+        new_max_q = max([self.get_q(result_state, a) for a in board.available_moves])
         key = '{}:{}'.format(state, action)
         self.q[key] = prev + self.alpha * ((reward + self.gamma * new_max_q) - prev)
 
